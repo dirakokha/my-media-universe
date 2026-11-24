@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-11-24
 **Branch:** `arena/08ec0aef-my-media-universe` (off `main` @ `688cfed`)
-**Status:** Feature-complete for v1. All quality gates green. Three integrations remain unverified against live third-party accounts.
+**Status:** Feature-complete for v1. All quality gates green. Three third-party integrations and two device/deploy-only paths remain unverified (see §3).
 
 ---
 
@@ -55,7 +55,7 @@ Read this section before touching anything.
 
 ## 1. What exists
 
-### Pages (11, all routed in `src/app.tsx`)
+### Pages (9 components → 20 routes in `src/app.tsx`)
 
 | Route | Page | Verified in browser |
 | --- | --- | --- |
@@ -72,7 +72,7 @@ Read this section before touching anything.
 ### Server
 
 - 8 route groups under `/api/*` (`auth`, `admin`, `library`, `collections`, `stats`, `tmdb`, `backup`, `account`) plus `/api/health`.
-- D1 schema in `migrations/0001_init.sql` (21 tables, indexed on every user-scoped query path) plus `0002_watch_event_spoiler.sql`.
+- D1 schema in `migrations/0001_init.sql` (**18 tables**, indexed on every user-scoped query path) plus `0002_watch_event_spoiler.sql` (adds `watch_events.is_spoiler`).
 - CSRF: every non-GET `/api/*` request must carry an `Origin` matching the request origin, `APP_BASE_URL`, or `x-forwarded-host`; otherwise 403.
 - Idempotency: non-GET requests with an `Idempotency-Key` are replayed from `sync_ops` (offline queue safety).
 - Rate limiting: D1 fixed windows on `bootstrap`, `register`, `login`, `resend`, `forgot`, `reset`, `recovery`, `recovery-complete`.
@@ -80,7 +80,9 @@ Read this section before touching anything.
 
 ### Data & sync
 
-- Server is the source of truth. Client keeps an IndexedDB mirror of library/detail/meta.
+- Server is the source of truth. Client keeps an IndexedDB mirror of library/detail/meta:
+  the dehydrated query cache (`react-query-cache-v1`, hydrated in `src/main.tsx` **before
+  the first render**) plus the service-worker shell cache for the HTML/JS/CSS.
 - Writes go through `src/lib/write.ts`: optimistic update → request → rollback on failure.
 - Offline writes are queued in IndexedDB with a client-generated id and replayed with `Idempotency-Key`; permanent 4xx failures move to a "needs attention" list, never silently dropped.
 - `visibilitychange`/`focus` triggers revalidation; the sidebar shows pending count and a manual **Sync Now**.
@@ -103,6 +105,7 @@ Read this section before touching anything.
 | Offline read | Playwright `setOffline(true)` + reload on `/item/:id` | ✅ page renders from the IndexedDB cache, no redirect to login |
 | Offline write | offline → change status → reconnect | ✅ toast says "بعد از اتصال ارسال می‌شود", sidebar shows "آفلاین · ۱ در انتظار ارسال", write applied after reconnect |
 | Spoiler hiding | DOM inspection before reveal | ✅ spoiler text absent from `document.body.innerText` until revealed |
+| Service-worker shell | online load → `setOffline(true)` → reload | ✅ `navigator.serviceWorker.controller === true`, caches `mmu-shell-v1-shell` + `-assets`, app renders offline |
 
 Test files:
 
@@ -132,7 +135,7 @@ None of these are "broken"; they are **untested because no credentials exist in 
 | **TMDB live API** | Code complete, unit-typed, cache in D1; **never called with a real key** | `TMDB_API_KEY` in `.dev.vars` → search a title → add to library → check poster/backdrop render and the attribution line |
 | **Google Drive** | OAuth PKCE, `drive.file`, AES-GCM token storage, upload/download, restore preview, 25-version rotation; **never run against a real Google account** | Create an OAuth client (Desktop type) in Google Cloud Console, set `GOOGLE_CLIENT_ID/SECRET`, click connect, upload, restore |
 | **Production e-mail** | Resend integration; in dev the message is logged instead; **never sent through Resend** | `RESEND_API_KEY` + verified `EMAIL_FROM` domain, then register and confirm delivery |
-| **PWA install prompt** | Manifest + service worker + icons ship and register; **install prompt not clicked on a real Android device** | Open on Android Chrome → "Add to Home screen" |
+| **PWA install prompt** | Manifest + SW + icons ship, SW registers and the shell is served offline (verified headlessly); **install prompt not clicked on a real Android device** | Open on Android Chrome → "Add to Home screen" |
 | **Cron** | Handler + `triggers.crons` configured; **never fired on a deployed Worker** | Deploy, opt in to auto-backup, inspect `wrangler tail` at 03:17 UTC |
 
 Do not report these as working in a delivery message until they have been exercised.

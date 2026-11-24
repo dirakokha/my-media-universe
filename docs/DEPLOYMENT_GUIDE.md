@@ -59,7 +59,10 @@ Verify:
 npx wrangler d1 execute mmu-db --remote --command "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
 ```
 
-Expect 21 tables.
+Expect **18 application tables** plus SQLite's internal `sqlite_sequence` — 19 rows in total.
+The 18 are: `users`, `sessions`, `invitations`, `email_tokens`, `rate_limits`, `media_items`,
+`episodes`, `seasons`, `watch_events`, `categories`, `category_items`, `lists`, `list_items`,
+`sync_ops`, `tmdb_cache`, `google_connections`, `backups`, `oauth_states`.
 
 ## 3. Configure secrets
 

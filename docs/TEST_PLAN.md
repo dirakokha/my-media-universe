@@ -130,7 +130,7 @@ overwritten history, spoiler flags that survive a save, and no cross-user leakag
 
 ---
 
-## 3. Manual scenarios (29 UI journeys)
+## 3. Manual scenarios (31 UI journeys — 29 required by the brief, plus 2 added during verification)
 
 These need a browser and a real account. Each is written as a sentence the owner
 can follow, with the expected result.
@@ -179,6 +179,10 @@ can follow, with the expected result.
 29. Reload while offline on `/item/:id` → the page renders from the IndexedDB cache
     instead of bouncing to the login page. ✅
 30. Kill the network mid-request → the request is queued, not lost. ✅
+31. Service worker: after one online load, `navigator.serviceWorker.controller`
+    is non-null and `caches.keys()` returns `mmu-shell-v1-shell` and
+    `mmu-shell-v1-assets`; with the network off, a reload still renders the app
+    (the HTML/JS/CSS come from the SW shell, the data from IndexedDB). ✅
 
 ### Visual checks
 For each of the above: 1366×900 and 390×844, dark and light, `prefers-reduced-motion`

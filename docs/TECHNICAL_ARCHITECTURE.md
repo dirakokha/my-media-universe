@@ -22,7 +22,7 @@
 └───────┬───────────────────────────────┬───────────────────────────────┘
         │                               │
    Cloudflare D1                 External APIs
-   (SQLite, 21 tables)           TMDB · Google Drive · Resend
+   (SQLite, 18 tables)           TMDB · Google Drive · Resend
 ```
 
 ---
@@ -30,7 +30,7 @@
 ## 1. Repository layout
 
 ```
-migrations/0001_init.sql     D1 schema (21 tables)
+migrations/0001_init.sql     D1 schema (18 tables)
 migrations/0002_watch_event_spoiler.sql   adds watch_events.is_spoiler
 worker/
   index.ts                   App composition, security headers, CSRF, idempotency, cron
@@ -40,6 +40,7 @@ worker/
   lib/rate-limit.ts          D1 fixed-window limiter
   lib/mailer.ts              Resend client (dev fallback: logs the message)
   lib/mappers.ts             row → API object
+  lib/constants.ts           status labels, limits, sort modes (shared with client)
   auth/service.ts            sessions, guards (requireUser/Verified/Admin), limits
   auth/routes.ts             bootstrap, register, login, logout, verify, reset, recovery, prefs
   routes/library.ts          library CRUD, ratings, watch events, episodes
@@ -54,7 +55,7 @@ worker/
   services/backup.ts         canonical backup document + validation
 src/
   app.tsx                    Router
-  pages/*.tsx                11 pages
+  pages/*.tsx                9 files → 20 route patterns (auth, app, admin, 404)
   components/ui/*            Button, Field, Modal, Dropdown, Rating, DatePicker, TagInput
   components/layout/         AppShell (sidebar / mobile header + bottom nav)
   components/media/          PosterCard
@@ -89,47 +90,72 @@ isomorphic. The Worker imports it directly; Vite bundles it into the client.
 ## 3. Data model (D1)
 
 ```
-users(id, username, username_normalized, email, email_normalized,
-      password_hash, password_salt, recovery_key_hash, recovery_key_updated_at,
-      role, preferences JSON, invited_by → invitations, email_verified_at,
-      disabled_at, created_at, updated_at)
+users(id, username, username_normalized UNIQUE, email, email_normalized UNIQUE,
+      email_verified_at, password_hash, password_salt, password_algo,
+      recovery_key_hash, recovery_key_updated_at, role, preferences JSON, timezone,
+      invited_by, disabled_at, created_at, updated_at)
 
-sessions(id, user_id → users, token_hash, user_agent, ip, created_at,
+sessions(id, user_id → users, token_hash UNIQUE, user_agent, ip, created_at,
          last_seen_at, expires_at, revoked_at)
 
-invitations(id, code_hash UNIQUE, code_hint, max_uses, use_count, expires_at,
-            revoked_at, used_by → users, created_by → users, email_hint, created_at)
+invitations(id, code_hash UNIQUE, code_hint, created_by → users, email_hint,
+            max_uses, use_count, note, expires_at, revoked_at, used_by → users,
+            used_at, created_at)
 
-email_tokens(id, user_id, purpose, token_hash, expires_at, used_at, created_at)
+email_tokens(id, user_id → users, purpose 'verify_email'|'reset_password'|'recovery_session',
+             token_hash UNIQUE, expires_at, used_at, created_at)
+
 rate_limits(key PK, count, window_start)
 
-media_items(id, user_id, source 'tmdb'|'manual', tmdb_kind, tmdb_id, kind, is_anime,
-            title, original_title, overview, poster_path, backdrop_path,
-            release_year, release_date, runtime_minutes, genres JSON, director,
-            cast_list JSON, status, rating_method, criteria JSON, rating_final,
-            final_series_rating, favorite, notes, tags JSON, removed_at,
-            created_at, updated_at)
+media_items(id, user_id → users, source 'tmdb'|'manual', tmdb_id, kind 'movie'|'series',
+            is_anime, title, original_title, overview, overview_en, poster_path,
+            backdrop_path, custom_poster_data, release_date, year, genres JSON,
+            runtime_minutes, country, language, director, cast_list JSON, status,
+            rating_method 'direct'|'criteria', rating_direct, criteria JSON,
+            rating_final, final_series_rating, notes, quotes JSON, is_spoiler,
+            tags JSON, watch_date, favorite, added_at, updated_at, removed_at)
 
-episodes(id, user_id, media_item_id, tmdb_episode_id, season_number, episode_number,
-         name, still_path, air_date, runtime_minutes, watched, rating_method,
-         criteria JSON, rating_final, notes, quotes JSON, watched_at, updated_at)
+episodes(id, user_id → users, media_item_id → media_items, tmdb_episode_id,
+         season_number, episode_number, name, original_name, overview, still_path,
+         air_date, runtime_minutes, watched, rating_method, rating_direct,
+         criteria JSON, rating_final, notes, quotes JSON, tags JSON, is_spoiler,
+         watch_date, added_at, updated_at;
+         UNIQUE (user_id, media_item_id, season_number, episode_number))
 
-seasons(id, user_id, media_item_id, season_number, name, poster_path, air_date)
-watch_events(id, user_id, media_item_id, episode_id, watched_at, rating_method,
-             criteria JSON, rating_final, note, created_at)
+seasons(id, user_id → users, media_item_id → media_items, tmdb_season_id,
+        season_number, name, overview, poster_path, air_date, episode_count,
+        added_at, updated_at; UNIQUE (user_id, media_item_id, season_number))
 
-categories(id, user_id, name, color, sort_order, created_at)
-category_items(category_id, media_item_id, position)
-lists(id, user_id, name, description, sort_mode, is_watchlist, created_at, updated_at)
-list_items(list_id, media_item_id, position)
+watch_events(id, user_id → users, media_item_id → media_items, episode_id → episodes,
+             watched_at, rating, rating_method, criteria JSON, notes, quotes JSON,
+             created_at, is_spoiler)          -- is_spoiler added by migration 0002;
+                                               -- append-only: rewatch history is never overwritten
 
-sync_ops(user_id, op_id, method, path, status_code, response, created_at)
-tmdb_cache(cache_key PK, payload JSON, expires_at)
-google_connections(user_id PK, access_token_enc, refresh_token_enc, expires_at,
-                   scope, folder_id, connected_at)
-backups(id, user_id, drive_file_id, name, size_bytes, schema_version, item_count,
-        kind 'manual'|'auto', created_at)
-oauth_states(state PK, user_id, code_verifier, expires_at)
+categories(id, user_id → users, name, color, icon, sort_order, created_at, updated_at;
+           UNIQUE (user_id, name))
+
+category_items(category_id → categories, media_item_id → media_items, added_at;
+               PK (category_id, media_item_id))
+
+lists(id, user_id → users, name, description, sort_mode 'manual'|'rating'|'date'|'title',
+      is_watchlist, created_at, updated_at)   -- one watchlist per user (unique partial index)
+
+list_items(list_id → lists, media_item_id → media_items, position REAL, added_at;
+           PK (list_id, media_item_id))
+
+sync_ops(user_id → users, op_id, method, path, status_code, response, created_at;
+         PK (user_id, op_id))                 -- idempotency replay for the offline queue
+
+tmdb_cache(cache_key PK, body, fetched_at, expires_at)
+
+google_connections(user_id PK → users, google_account_id, google_email,
+                   access_token_enc, refresh_token_enc, access_expires_at, scope,
+                   folder_id, created_at, updated_at)
+
+backups(id, user_id → users, drive_file_id, name, size_bytes, schema_version,
+        item_count, kind 'manual'|'auto', created_at)
+
+oauth_states(state PK, user_id → users, code_verifier, expires_at)
 ```
 
 Design notes:
@@ -212,8 +238,14 @@ online again → flush queue in order → replay with the same key
 ```
 
 - **Revalidation:** `refetchOnWindowFocus` + `online` event + manual Sync Now.
-- **Cache:** successful GET responses are mirrored into IndexedDB
-  (`cache` store, key = request path). Offline reads fall back to it.
+- **Read cache:** the *dehydrated query cache* (successful queries only) is written
+  to IndexedDB under the key `react-query-cache-v1`, debounced 900 ms, capped at
+  4 MB and discarded after 14 days. `src/main.tsx` **awaits hydration before the
+  first render**, so an offline reload of `/item/:id` renders the app instead of
+  bouncing to `/login`. (`cacheSet` already wraps the payload as `{state, savedAt}` —
+  the call site must not wrap it again; that bug silently produced an empty cache.)
+- **Write queue:** `queue` store, one row per pending write with a stable client id,
+  replayed in order with the same `Idempotency-Key`.
 - **Conflict policy:** last-write-wins at the field level, because the owner is a
   single person on a few devices. A watch event is append-only, so the only
   conflicting writes are edits to the same field — and those are idempotent.

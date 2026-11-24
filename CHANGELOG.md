@@ -43,7 +43,7 @@ First complete version. Everything below is implemented and verified locally
   to prevent account enumeration.
 
 **Data**
-- Cloudflare Workers + D1 backend with 21 tables, migrations and indexed queries.
+- Cloudflare Workers + D1 backend with 18 tables, migrations and indexed queries.
 - Offline support: IndexedDB response cache, optimistic writes with rollback, and
   a pending-write queue replayed with idempotency keys.
 - Portable JSON export and import with schema-version guards and size caps.
@@ -78,6 +78,27 @@ First complete version. Everything below is implemented and verified locally
   viewing history.
 - Queued writes were reported as "saved" without saying they were queued.
 - The sidebar said «همگام شده» while offline; it now says «آفلاین · N در انتظار ارسال».
+- **Light-theme poster placeholders were near-black slabs.** The placeholder
+  tint is now theme-driven (`--ph-sat/--ph-l1/--ph-l2` tokens), and the card
+  footer scrim and year colour only use the dark scrim when a real poster exists.
+  Verified at 1366×900 and 390×844 in both themes.
+- **The status switcher clipped its last option on a 390 px viewport.**
+  `.segmented` is now horizontally scrollable with narrower mobile padding, so
+  all five statuses (including «رها شده») are reachable on a phone.
+- **Documentation drifted from the schema.** The table count was stated as 21
+  where the migrations create 18 (plus SQLite's internal `sqlite_sequence`), and
+  the architecture doc's column list missed `overview_en`, `custom_poster_data`,
+  `year`, `country`, `language`, `quotes`, `is_spoiler`, `watch_date` and
+  `added_at` while inventing `release_year`, `tmdb_kind`, `created_at` and
+  `connected_at`. Both now match `sqlite_master`, and §7 describes the real
+  offline mechanism (dehydrated query cache + service-worker shell) instead of a
+  per-path response cache.
+
+### Verified in the final pass
+- **Service worker:** registers, precaches the shell, and an offline reload
+  renders the app (`navigator.serviceWorker.controller === true`, caches
+  `mmu-shell-v1-shell` + `mmu-shell-v1-assets`).
+- **Mobile layouts at 390×844:** home, library, item, stats, settings, lists.
 
 ### Known limitations (documented, not hidden)
 - TMDB live API, Google Drive OAuth and production e-mail have **not** been

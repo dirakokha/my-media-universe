@@ -295,11 +295,19 @@
 /* Segmented control */
 .segmented {
   display: inline-flex;
+  max-width: 100%;
+  /* Five status labels do not fit a 390 px viewport: let the row scroll
+     horizontally instead of clipping the last option. */
+  overflow-x: auto;
+  scrollbar-width: none;
   padding: 3px;
   gap: 2px;
   border-radius: 10px;
   background: rgb(var(--c-overlay));
   border: 1px solid rgb(var(--c-line));
+}
+.segmented::-webkit-scrollbar {
+  display: none;
 }
 .segmented > button {
   border-radius: 8px;
@@ -316,6 +324,12 @@
 }
 .light .segmented > button[data-active='true'] {
   background: rgb(255 255 255);
+}
+@media (max-width: 420px) {
+  .segmented > button {
+    padding: 6px 9px;
+    font-size: 11.5px;
+  }
 }
 
 /* Range slider styled for the rating control */
